@@ -76,25 +76,6 @@ services:
     networks:
       - my-network
 
-  auth-service:
-    build:
-      context: ./authService
-      dockerfile: Dockerfile
-    container_name: auth-service
-    ports:
-      - "8003:8003"
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/db?useSSL=FALSE&allowPublicKeyRetrieval=TRUE&autoReconnect=true&serverTimezone=UTC
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: password
-      SPRING_APPLICATION_JSON: '{"eureka":{"client":{"serviceUrl":{"defaultZone":"http://service-registry:8761/eureka"}}}}'
-    depends_on:
-      - mysql
-      - service-registry
-    links:
-      - mysql
-    networks:
-      - my-network
   message-consumer:
     build:
       context: ./messageConsumer
@@ -137,24 +118,6 @@ services:
       - "8761:8761"
     networks:
       - my-network
-  api-gateway:
-    build:
-      context: ./api-gateway
-      dockerfile: Dockerfile
-    container_name: api-gateway
-    volumes:
-      - ./api-gateway/src/main/resources/application.properties:/app/application.properties
-    ports:
-      - "8000:8000"
-    depends_on:
-      - service-registry
-    environment:
-      SPRING_APPLICATION_JSON: '{"eureka":{"client":{"serviceUrl":{"defaultZone":"http://service-registry:8761/eureka"}}}}'
-    networks:
-      - my-network
-
-
-
 
 networks:
   my-network:
