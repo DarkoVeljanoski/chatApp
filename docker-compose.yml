@@ -1,0 +1,163 @@
+version: '3.8'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper
+    container_name: zookeeper
+    ports:
+      - "32181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - my-network
+
+  kafka:
+    image: confluentinc/cp-kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://:9092,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    restart: on-failure
+    networks:
+      - my-network
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      DB_VENDOR: MYSQL
+      DB_ADDR: mysql
+      DB_DATABASE: chatUsers
+      DB_USER: root
+      DB_PASSWORD: password
+      KEYCLOAK_HOSTNAME: keycloak
+      KEYCLOAK_HTTP_PORT: "8080"
+    command:
+      - start-dev
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql
+    networks:
+      - my-network
+
+  mysql:
+    image: mysql:latest
+    container_name: mysql
+    ports:
+      - "3306:3306"
+    restart: on-failure
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: chatUsers
+      MYSQL_USER: root
+      MYSQL_PASSWORD: password
+    cap_add:
+      - SYS_NICE  # CAP_SYS_NICE
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - my-network
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - my-network
+
+  auth-service:
+    build:
+      context: ./authService
+      dockerfile: Dockerfile
+    container_name: auth-service
+    ports:
+      - "8003:8003"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/db?useSSL=FALSE&allowPublicKeyRetrieval=TRUE&autoReconnect=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_APPLICATION_JSON: '{"eureka":{"client":{"serviceUrl":{"defaultZone":"http://service-registry:8761/eureka"}}}}'
+    depends_on:
+      - mysql
+      - service-registry
+    links:
+      - mysql
+    networks:
+      - my-network
+  message-consumer:
+    build:
+      context: ./messageConsumer
+      dockerfile: Dockerfile
+    container_name: message-consumer
+    ports:
+      - "8001:8001"
+    environment:
+      SPRING_KAFKA_CONSUMER_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_APPLICATION_JSON: '{"eureka":{"client":{"serviceUrl":{"defaultZone":"http://service-registry:8761/eureka"}}}}'
+    depends_on:
+      - kafka
+      - service-registry
+    networks:
+      - my-network
+  message-producer:
+    build:
+      context: ./messageProducer
+      dockerfile: Dockerfile
+    container_name: message-producer
+    ports:
+      - "8002:8002"
+    environment:
+      SPRING_KAFKA_CONSUMER_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_APPLICATION_JSON: '{"eureka":{"client":{"serviceUrl":{"defaultZone":"http://service-registry:8761/eureka"}}}}'
+      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_ISSUER-URI: "http://keycloak:8080/realms/chatApp"
+    depends_on:
+      - kafka
+      - service-registry
+    networks:
+      - my-network
+  service-registry:
+    build:
+      context: ./service-registry
+      dockerfile: Dockerfile
+    container_name: service-registry
+    volumes:
+      - ./service-registry/src/main/resources/application.properties:/app/application.properties
+    ports:
+      - "8761:8761"
+    networks:
+      - my-network
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    volumes:
+      - ./api-gateway/src/main/resources/application.properties:/app/application.properties
+    ports:
+      - "8000:8000"
+    depends_on:
+      - service-registry
+    environment:
+      SPRING_APPLICATION_JSON: '{"eureka":{"client":{"serviceUrl":{"defaultZone":"http://service-registry:8761/eureka"}}}}'
+    networks:
+      - my-network
+
+
+
+
+networks:
+  my-network:
+    driver: bridge
+    external: false
+
